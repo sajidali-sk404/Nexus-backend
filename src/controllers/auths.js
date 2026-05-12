@@ -5,6 +5,7 @@ import User from "../models/User.js";
 
 
 
+
 // ── Helper: Generate JWT ───────────────────────────────────────────
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -13,13 +14,24 @@ const generateToken = (id) => {
 };
 
 // ── Helper: Send token response ────────────────────────────────────
-const sendTokenResponse = (user, statusCode, res) => {
+const sendTokenResponse = (
+  user,
+  statusCode,
+  res
+) => {
   const token = generateToken(user._id);
-  user.password = undefined; // strip password from response
+
+  user.password = undefined;
+
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: false, // true in production HTTPS
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
 
   res.status(statusCode).json({
     success: true,
-    token,
     user,
   });
 };
@@ -252,5 +264,42 @@ export const changePassword = (
     res.status(500).json({ success: false, message: "Server error." });
   }
 });
+
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email",
+      });
+    }
+
+    // generate reset token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpire =
+      Date.now() + 15 * 60 * 1000; // 15 min
+
+    await user.save();
+
+    // send email here
+
+    res.status(200).json({
+      success: true,
+      message:
+        "Password reset instructions sent to your email",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
 
 

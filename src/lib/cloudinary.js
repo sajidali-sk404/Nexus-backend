@@ -8,10 +8,6 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 })
-
-console.log(process.env.CLOUDINARY_CLOUD_NAME);
-console.log(process.env.CLOUDINARY_API_KEY);
-console.log(process.env.CLOUDINARY_API_SECRET);
 // ── UPLOAD ───────────────────────────────────
 export const uploadToCloudinary = async (file) => {
   if (!file) {
@@ -26,7 +22,6 @@ export const uploadToCloudinary = async (file) => {
   } = file
 
   if (!buffer || !originalname) {
-    console.log("INVALID FILE:", file)
     throw new Error("Invalid file object")
   }
 

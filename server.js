@@ -4,12 +4,15 @@ import mongoose from "mongoose";
 import cors from "cors";
 import helmet from "helmet";
 import path from "path";
+import cookieParser from "cookie-parser";
+
 
 import authRoutes from "./src/routes/auths.js";
 import userRoutes from "./src/routes/users.js";
 import meetingRoutes from "./src/routes/meetings.js";
 import docRoutes from "./src/routes/docs.js";
 import paymentRoutes from "./src/routes/payments.js";
+
 
 
 const app = express();
@@ -21,6 +24,8 @@ app.use(cors({
   credentials: true,
 }));
 
+
+app.use(cookieParser());
 // ── Body Parsers ───────────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));

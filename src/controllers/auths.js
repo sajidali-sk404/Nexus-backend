@@ -151,6 +151,13 @@ export const login = (
       if (!user.isActive) {
         return res.status(403).json({ success: false, message: "Account deactivated." });
       }
+        // Sign a lean payload — no sensitive data in the token
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    )
+
 
       sendTokenResponse(user, 200, res);
     } catch (error) {

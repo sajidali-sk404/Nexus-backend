@@ -12,6 +12,9 @@ import userRoutes from "./src/routes/users.js";
 import meetingRoutes from "./src/routes/meetings.js";
 import docRoutes from "./src/routes/docs.js";
 import paymentRoutes from "./src/routes/payments.js";
+import collaborationRoutes from "./src/routes/collaborationRequest.js";
+import messageRoutes from "./src/routes/message.js";
+import notificationRoutes from "./src/routes/notification.js";
 
 
 
@@ -39,6 +42,11 @@ app.use("/api/users",    userRoutes);
 app.use("/api/meetings", meetingRoutes);
 app.use("/api/docs",     docRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/collaborations", collaborationRoutes);
+app.use("/api/messages", messageRoutes);
+app.use("/api/notifications", notificationRoutes);
+
+
 
 // ── Health Check ───────────────────────────────────────────────────
 app.get("/api/health", (req, res) => {

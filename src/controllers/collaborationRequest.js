@@ -1,6 +1,6 @@
-import express from("express");
-import CollaborationRequest from("../models/CollaborationRequest");
-import Notification from("../models/Notification");
+import express from "express";
+import CollaborationRequest from "../models/CollaborationRequest.js";
+import Notification from "../models/Notification.js";
 
 
 // ────────────────────────────────────────────────────────────────────

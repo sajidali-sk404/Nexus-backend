@@ -52,6 +52,14 @@ const UserSchema = new mongoose.Schema(
         to: Date,
         description: String,
       },
+      {
+        pitchSummary: { type: String, default: "" },      // for search in EntrepreneursPage
+        fundingStage: {
+          type: String,
+          enum: ["pre-seed", "seed", "series-a", "series-b", "series-c", ""],
+          default: "",
+        },
+      }
     ],
 
     // ── Investor specific ──────────────────────────────────────────
@@ -66,6 +74,13 @@ const UserSchema = new mongoose.Schema(
         year: Number,
         outcome: String,
       },
+      {
+        investmentStage: [{
+          type: String,
+          enum: ["pre-seed", "seed", "series-a", "series-b", "series-c"]
+        }],
+        investmentInterests: [{ type: String }],
+      }
     ],
 
     // ── Security ───────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import express from "express";
-import { sendCollaborationRequest, getReceivedRequests, getSentRequests, respondToRequest, cancelRequest } from "../controllers/collaborationRequest";
+import { sendCollaborationRequest, getReceivedRequests, getSentRequests, respondToRequest, cancelRequest } from "../controllers/collaborationRequest.js";
 
 const router = express.Router();
 

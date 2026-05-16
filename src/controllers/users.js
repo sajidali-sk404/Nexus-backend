@@ -57,16 +57,64 @@ export const getUsers = (
 export const getInvestors = (
   async (req, res) => {
     try {
-      const investors = await User.find({ role: "investor", isActive: true })
-        .select("name email bio profilePic location investmentFocus minInvestment maxInvestment portfolioSize")
-        .sort({ createdAt: -1 });
+    const { search, stage, interest, page = 1, limit = 20 } = req.query;
 
-      res.status(200).json({ success: true, count: investors.length, investors });
-    } catch (error) {
-      res.status(500).json({ success: false, message: "Server error." });
+    const filter = { role: "investor", isActive: true };
+
+    // Search across name, bio, investmentInterests
+    if (search) {
+      filter.$or = [
+        { name: new RegExp(search, "i") },
+        { bio: new RegExp(search, "i") },
+        { investmentInterests: new RegExp(search, "i") },
+      ];
     }
+
+    // Filter by investment stage (investor has array of stages)
+    if (stage) {
+      filter.investmentStage = { $in: [stage] };
+    }
+
+    // Filter by investment interest
+    if (interest) {
+      filter.investmentInterests = { $in: [new RegExp(interest, "i")] };
+    }
+
+    const skip = (page - 1) * limit;
+
+    const investors = await User.find(filter)
+      .select("name email bio profilePic location investmentFocus investmentStage investmentInterests minInvestment maxInvestment portfolioSize")
+      .skip(skip)
+      .limit(Number(limit))
+      .sort({ createdAt: -1 });
+
+    const total = await User.countDocuments(filter);
+
+    // Return unique stages and interests for filter sidebar
+    const allStages = await User.distinct("investmentStage", {
+      role: "investor",
+      isActive: true,
+    });
+
+    const allInterests = await User.distinct("investmentInterests", {
+      role: "investor",
+      isActive: true,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: investors.length,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: Number(page),
+      allStages,
+      allInterests,
+      investors,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error." });
   }
-);
+});
 
 // ────────────────────────────────────────────────────────────────────
 // @route   GET /api/users/entrepreneurs
@@ -76,16 +124,72 @@ export const getInvestors = (
 export const getEntrepreneurs = (
   async (req, res) => {
     try {
-      const entrepreneurs = await User.find({ role: "entrepreneur", isActive: true })
-        .select("name email bio profilePic location industry startupName startupStage fundingNeeded")
-        .sort({ createdAt: -1 });
+    const { search, industry, fundingRange, page = 1, limit = 20 } = req.query;
 
-      res.status(200).json({ success: true, count: entrepreneurs.length, entrepreneurs });
-    } catch (error) {
-      res.status(500).json({ success: false, message: "Server error." });
+    const filter = { role: "entrepreneur", isActive: true };
+
+    // Search across name, startupName, industry, pitchSummary
+    if (search) {
+      filter.$or = [
+        { name: new RegExp(search, "i") },
+        { startupName: new RegExp(search, "i") },
+        { industry: new RegExp(search, "i") },
+        { pitchSummary: new RegExp(search, "i") },
+      ];
     }
+
+    if (industry) {
+      filter.industry = new RegExp(industry, "i");
+    }
+
+    // Funding range filter — matches frontend: < $500K | $500K - $1M | $1M - $5M | > $5M
+    if (fundingRange) {
+      switch (fundingRange) {
+        case "< $500K":
+          filter.fundingNeeded = { $lt: 500000 };
+          break;
+        case "$500K - $1M":
+          filter.fundingNeeded = { $gte: 500000, $lte: 1000000 };
+          break;
+        case "$1M - $5M":
+          filter.fundingNeeded = { $gt: 1000000, $lte: 5000000 };
+          break;
+        case "> $5M":
+          filter.fundingNeeded = { $gt: 5000000 };
+          break;
+      }
+    }
+
+    const skip = (page - 1) * limit;
+
+    const entrepreneurs = await User.find(filter)
+      .select("name email bio profilePic location industry startupName startupStage fundingNeeded pitchSummary fundingStage")
+      .skip(skip)
+      .limit(Number(limit))
+      .sort({ createdAt: -1 });
+
+    const total = await User.countDocuments(filter);
+
+    // Return unique industries for the filter sidebar
+    const allIndustries = await User.distinct("industry", {
+      role: "entrepreneur",
+      isActive: true,
+      industry: { $ne: "" },
+    });
+
+    res.status(200).json({
+      success: true,
+      count: entrepreneurs.length,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: Number(page),
+      allIndustries,
+      entrepreneurs,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error." });
   }
-);
+});
 
 // ────────────────────────────────────────────────────────────────────
 // @route   GET /api/users/:id

@@ -1,5 +1,5 @@
-import express from ("express");
-import Notification from ("../models/Notification");
+import express from "express";
+import Notification from "../models/Notification.js";
 
 
 // ────────────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import paymentRoutes from "./src/routes/payments.js";
 import collaborationRoutes from "./src/routes/collaborationRequest.js";
 import messageRoutes from "./src/routes/message.js";
 import notificationRoutes from "./src/routes/notification.js";
+import dealRoutes from "./src/routes/deals.js";
 
 
 
@@ -45,7 +46,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/collaborations", collaborationRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/notifications", notificationRoutes);
-
+app.use("/api/deals", dealRoutes);
 
 
 // ── Health Check ───────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import express from "express";
-import { sendMessage, getConversations , getMessages, markMessageAsRead, getUnreadCount } from "../controllers/message";
+import { sendMessage, getConversations , getMessages, markMessageAsRead, getUnreadCount } from "../controllers/message.js";
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();

@@ -10,6 +10,8 @@ const router = express.Router();
 // @access  Private
 // ────────────────────────────────────────────────────────────────────
 router.post("/deposit", protect, depositMoney);
+router.post("/withdraw", protect, withdrawMoney);     // ✅ ADDED
+router.post("/transfer", protect, transferMoney);  
 router.get("/history", protect, getTransactionHistory);
 router.get("/balance", protect, getWalletBalance);
 router.get("/:id", protect, getTransactionDetails);

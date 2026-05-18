@@ -1,18 +1,23 @@
 import express from "express";
-import { createDeal, getDeal, getMyDeals, getDeals, updateDeal , deleteDeal } from "../controllers/deals.js";
+import {
+  createDeal,
+  getDeals,
+  getDeal,
+  updateDeal,
+  updateDealStatus,
+  addDealNote,
+  deleteDeal,
+} from "../controllers/deals.js";
 import { protect } from "../middleware/authMiddleware.js";
-import { roleCheck } from "../middleware/roleCheck.js";
 
 const router = express.Router();
 
-// ────────────────────────────────────────────────────────────────────
-
-
-router.post("/", protect, roleCheck("investor"), createDeal);
-router.get("/my-deals", protect, roleCheck("entrepreneur"), getMyDeals);
-router.get("/", protect, roleCheck("investor"), getDeals);
+router.post("/", protect, createDeal);
+router.get("/", protect, getDeals);
 router.get("/:id", protect, getDeal);
-router.put("/:id", protect, roleCheck("investor"), updateDeal);
-router.delete("/:id", protect, roleCheck("investor"), deleteDeal);
+router.put("/:id", protect, updateDeal);
+router.put("/:id/status", protect, updateDealStatus);
+router.post("/:id/notes", protect, addDealNote);
+router.delete("/:id", protect, deleteDeal);
 
 export default router;

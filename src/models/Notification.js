@@ -36,7 +36,7 @@ const NotificationSchema = new mongoose.Schema(
     },
     refModel: {
       type: String,
-      enum: ["Message", "CollaborationRequest", "Meeting", "Document", "Transaction", null],
+      enum: ["Message", "CollaborationRequest", "Deal", "Meeting", "Document", "Transaction", null],
       default: null,
     },
   },

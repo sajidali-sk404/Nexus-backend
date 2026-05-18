@@ -20,7 +20,7 @@ const UserSchema = new mongoose.Schema(
       type: String,
       required: [true, "Password is required"],
       minlength: 6,
-      select: false, // never return password in queries
+      select: false,
     },
     role: {
       type: String,
@@ -31,9 +31,15 @@ const UserSchema = new mongoose.Schema(
     // ── Profile Info ───────────────────────────────────────────────
     bio: { type: String, default: "" },
     profilePic: { type: String, default: "" },
+    avatarUrl: { type: String, default: "" },
     location: { type: String, default: "" },
     phone: { type: String, default: "" },
     website: { type: String, default: "" },
+    socialLinks: {
+      linkedin: { type: String, default: "" },
+      twitter: { type: String, default: "" },
+      github: { type: String, default: "" },
+    },
 
     // ── Entrepreneur specific ──────────────────────────────────────
     startupName: { type: String, default: "" },
@@ -44,6 +50,15 @@ const UserSchema = new mongoose.Schema(
     },
     industry: { type: String, default: "" },
     fundingNeeded: { type: Number, default: 0 },
+    // ✅ FIXED: Moved out of startupHistory array
+    pitchSummary: { type: String, default: "" },
+    fundingStage: {
+      type: String,
+      enum: ["pre-seed", "seed", "series-a", "series-b", "series-c", ""],
+      default: "",
+    },
+    foundedYear: { type: Number, default: null },
+    teamSize: { type: Number, default: 1 },
     startupHistory: [
       {
         company: String,
@@ -52,14 +67,6 @@ const UserSchema = new mongoose.Schema(
         to: Date,
         description: String,
       },
-      {
-        pitchSummary: { type: String, default: "" },      // for search in EntrepreneursPage
-        fundingStage: {
-          type: String,
-          enum: ["pre-seed", "seed", "series-a", "series-b", "series-c", ""],
-          default: "",
-        },
-      }
     ],
 
     // ── Investor specific ──────────────────────────────────────────
@@ -67,6 +74,15 @@ const UserSchema = new mongoose.Schema(
     portfolioSize: { type: Number, default: 0 },
     minInvestment: { type: Number, default: 0 },
     maxInvestment: { type: Number, default: 0 },
+    totalInvestments: { type: Number, default: 0 },
+    // ✅ FIXED: Moved out of investmentHistory array
+    investmentStage: [
+      {
+        type: String,
+        enum: ["pre-seed", "seed", "series-a", "series-b", "series-c"],
+      },
+    ],
+    investmentInterests: [{ type: String }],
     investmentHistory: [
       {
         company: String,
@@ -74,14 +90,15 @@ const UserSchema = new mongoose.Schema(
         year: Number,
         outcome: String,
       },
-      {
-        investmentStage: [{
-          type: String,
-          enum: ["pre-seed", "seed", "series-a", "series-b", "series-c"]
-        }],
-        investmentInterests: [{ type: String }],
-      }
     ],
+
+    // ── Notification Preferences ───────────────────────────────────
+    notificationPreferences: {
+      emailNotifications: { type: Boolean, default: true },
+      messageNotifications: { type: Boolean, default: true },
+      collaborationNotifications: { type: Boolean, default: true },
+      investmentNotifications: { type: Boolean, default: true },
+    },
 
     // ── Security ───────────────────────────────────────────────────
     twoFactorEnabled: { type: Boolean, default: false },
@@ -90,6 +107,8 @@ const UserSchema = new mongoose.Schema(
 
     isVerified: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
+    isOnline: { type: Boolean, default: false },
+    lastSeen: { type: Date, default: null },
   },
   { timestamps: true }
 );
@@ -97,7 +116,6 @@ const UserSchema = new mongoose.Schema(
 // ── Hash password before saving ────────────────────────────────────
 UserSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
-
   const salt = await bcrypt.genSalt(12);
   this.password = await bcrypt.hash(this.password, salt);
 });

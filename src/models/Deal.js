@@ -1,8 +1,16 @@
 import mongoose from "mongoose";
 
-const DealSchema = new mongoose.Schema(
+const dealSchema = new mongoose.Schema(
   {
-    // ── Parties ───────────────────────────────────────────────────
+    title: {
+      type: String,
+      required: [true, "Deal title is required"],
+      trim: true,
+    },
+    description: {
+      type: String,
+      default: "",
+    },
     investorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -13,61 +21,84 @@ const DealSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-
-    // ── Startup Info (denormalized for deal card display) ─────────
-    startupName: { type: String, required: true },
-    industry: { type: String, default: "" },
-
-    // ── Deal Terms ────────────────────────────────────────────────
     amount: {
       type: Number,
-      required: [true, "Investment amount is required"],
+      required: [true, "Deal amount is required"],
+      min: 0,
     },
-    currency: { type: String, default: "USD" },
+    currency: {
+      type: String,
+      default: "USD",
+      uppercase: true,
+    },
     equity: {
-      type: Number, // percentage e.g. 15 for 15%
-      required: [true, "Equity percentage is required"],
+      type: Number,
+      default: 0,
       min: 0,
       max: 100,
     },
-
-    // ── Stage & Status ────────────────────────────────────────────
-    stage: {
+    dealType: {
       type: String,
-      enum: ["pre-seed", "seed", "series-a", "series-b", "series-c"],
-      required: true,
+      enum: ["equity", "debt", "convertible-note", "safe", "grant", "other"],
+      default: "equity",
     },
     status: {
       type: String,
-      enum: ["negotiation", "due-diligence", "term-sheet", "closed", "passed"],
-      default: "negotiation",
+      enum: ["draft", "proposed", "negotiating", "accepted", "rejected", "completed", "cancelled"],
+      default: "draft",
     },
-
-    // ── Notes & Activity ──────────────────────────────────────────
-    notes: { type: String, default: "" },
-    lastActivity: { type: Date, default: Date.now },
-
-    // ── Linked Resources ─────────────────────────────────────────
-    meetingId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Meeting",
+    stage: {
+      type: String,
+      enum: ["pre-seed", "seed", "series-a", "series-b", "series-c", "other"],
+      default: "seed",
+    },
+    terms: {
+      type: String,
+      default: "",
+    },
+    startupName: {
+      type: String,
+      default: "",
+    },
+    industry: {
+      type: String,
+      default: "",
+    },
+    valuation: {
+      type: Number,
+      default: 0,
+    },
+    closingDate: {
+      type: Date,
       default: null,
     },
-    documents: [{
+    documents: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Document",
+      },
+    ],
+    notes: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        content: String,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    createdBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Document",
-    }],
-    collaborationRequestId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "CollaborationRequest",
-      default: null,
+      ref: "User",
+      required: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-// Index for investor dashboard queries
-DealSchema.index({ investorId: 1, status: 1, createdAt: -1 });
-DealSchema.index({ entrepreneurId: 1, status: 1 });
+// Indexes
+dealSchema.index({ investorId: 1, status: 1 });
+dealSchema.index({ entrepreneurId: 1, status: 1 });
+dealSchema.index({ createdBy: 1 });
 
-export default  mongoose.model("Deal", DealSchema);
+export default mongoose.model("Deal", dealSchema);

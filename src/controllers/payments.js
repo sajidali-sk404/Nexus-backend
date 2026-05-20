@@ -320,6 +320,15 @@ export const transferMoney = async (req, res) => {
       description: description || "Transfer to user",
       processedAt: new Date(),
     });
+    
+    await Notification.create({
+      userId: toUserId,
+      fromUserId: req.user._id,
+      type: "payment",
+      content: `${req.user.name} sent you $${amount}`,
+      refId: transaction._id,
+      refModel: "Transaction",
+    });
 
     await transaction.populate("from", "name email profilePic");
     await transaction.populate("to", "name email profilePic");

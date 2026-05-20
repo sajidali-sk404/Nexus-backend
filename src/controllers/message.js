@@ -35,20 +35,7 @@ export const sendMessage = async (req, res) => {
       .populate("senderId", "name email profilePic avatarUrl role")
       .populate("receiverId", "name email profilePic avatarUrl role");
 
-    // Create notification for receiver
-    try {
-      await Notification.create({
-        userId: receiverId,
-        fromUserId: req.user._id,
-        type: "message",
-        content: `${req.user.name} sent you a message`,
-        refId: message._id,
-        refModel: "Message",
-      });
-    } catch (notifError) {
-      console.error("Notification creation failed:", notifError);
-      // Don't fail the whole request if notification fails
-    }
+  
 
     res.status(201).json({ success: true, message: populatedMessage });
   } catch (error) {

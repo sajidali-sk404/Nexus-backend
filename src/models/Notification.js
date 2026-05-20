@@ -14,7 +14,7 @@ const NotificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["message", "connection", "investment", "meeting", "document", "payment","deal"],
+      enum: ["connection", "investment", "system", "meeting", "payment", "document", "deal"],
       required: true,
     },
     content: {
@@ -36,7 +36,7 @@ const NotificationSchema = new mongoose.Schema(
     },
     refModel: {
       type: String,
-      enum: ["Message", "CollaborationRequest", "Deal", "Meeting", "Document", "Transaction", null],
+      enum: ["CollaborationRequest", "Deal", "Document", "Transaction", "Meeting", "System", null],
       default: null,
     },
   },

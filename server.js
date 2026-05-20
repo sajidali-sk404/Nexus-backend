@@ -29,10 +29,76 @@ app.use(cors({
 }));
 
 
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://js.stripe.com",
+          "https://m.stripe.network",
+          "blob:"
+        ],
+
+        scriptSrcElem: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://js.stripe.com",
+          "https://m.stripe.network",
+          "blob:"
+        ],
+
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://fonts.googleapis.com"
+        ],
+
+        fontSrc: [
+          "'self'",
+          "https://fonts.gstatic.com",
+          "data:"
+        ],
+
+        connectSrc: [
+          "'self'",
+          "https://api.stripe.com",
+          "https://m.stripe.network",
+          "https://js.stripe.com"
+        ],
+
+        frameSrc: [
+          "'self'",
+          "https://js.stripe.com",
+          "https://hooks.stripe.com"
+        ],
+
+        imgSrc: [
+          "'self'",
+          "data:",
+          "https:"
+        ],
+
+        objectSrc: ["'none'"],
+
+        baseUri: ["'self'"],
+      },
+    },
+  })
+);
 app.use(cookieParser());
 // ── Body Parsers ───────────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// ⚠️ Stripe webhook needs raw body - add BEFORE express.json()
+app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
+
+
 
 // ── Static Files (uploaded docs) ───────────────────────────────────
 // app.use("/uploads", express.static(path.join(__dirname, "uploads")));

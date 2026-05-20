@@ -1,78 +1,253 @@
-import express from 'express'
 import Transaction from "../models/Transaction.js";
 import mongoose from "mongoose";
+import Stripe from "stripe";
 
-// ── Stripe setup (uses sandbox/test key from .env) ─────────────────
-let stripe;
-try {
-  stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-} catch {
-  console.warn("⚠️  Stripe not installed. Run: npm install stripe");
+// ✅ Initialize Stripe
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+// ── Helper: Calculate wallet balance ──────────────────────────────
+async function calculateBalance(userId) {
+  const userObjectId = new mongoose.Types.ObjectId(userId);
+
+  const inbound = await Transaction.aggregate([
+    { $match: { to: userObjectId, status: "completed" } },
+    { $group: { _id: null, total: { $sum: "$amount" } } },
+  ]);
+
+  const outbound = await Transaction.aggregate([
+    { $match: { from: userObjectId, status: "completed" } },
+    { $group: { _id: null, total: { $sum: "$amount" } } },
+  ]);
+
+  return (inbound[0]?.total || 0) - (outbound[0]?.total || 0);
 }
 
 // ────────────────────────────────────────────────────────────────────
-// @route   POST /api/payments/deposit
-// @desc    Deposit money (create Stripe Payment Intent)
-// @access  Private
+// POST /api/payments/create-payment-intent
+// Create Stripe Payment Intent for deposit
+// ────────────────────────────────────────────────────────────────────
+export const createPaymentIntent = async (req, res) => {
+  try {
+    const { amount, currency = "usd" } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid amount is required.",
+      });
+    }
+
+    // ✅ Create Stripe Payment Intent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100), // Stripe uses cents
+      currency: currency.toLowerCase(),
+      metadata: {
+        userId: req.user._id.toString(),
+        userName: req.user.name,
+        type: "deposit",
+      },
+      automatic_payment_methods: {
+        enabled: true,
+      },
+    });
+
+    // ✅ Save pending transaction
+    const transaction = await Transaction.create({
+      to: req.user._id,
+      amount,
+      currency: currency.toUpperCase(),
+      type: "deposit",
+      status: "pending",
+      stripePaymentIntentId: paymentIntent.id,
+      paymentMethod: "card",
+      description: `Deposit of ${currency.toUpperCase()} ${amount}`,
+    });
+
+    console.log("Payment Intent created:", paymentIntent.id);
+
+    res.status(201).json({
+      success: true,
+      clientSecret: paymentIntent.client_secret,
+      transactionId: transaction._id,
+      paymentIntentId: paymentIntent.id,
+    });
+  } catch (error) {
+    console.error("Create Payment Intent error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ────────────────────────────────────────────────────────────────────
+// POST /api/payments/confirm-payment
+// Confirm payment after Stripe processes it
+// ────────────────────────────────────────────────────────────────────
+export const confirmPayment = async (req, res) => {
+  try {
+    const { paymentIntentId } = req.body;
+
+    if (!paymentIntentId) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment Intent ID is required.",
+      });
+    }
+
+    // ✅ Verify with Stripe
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+    console.log("Payment status:", paymentIntent.status);
+
+    if (paymentIntent.status === "succeeded") {
+      // ✅ Update transaction to completed
+      const transaction = await Transaction.findOneAndUpdate(
+        { stripePaymentIntentId: paymentIntentId },
+        {
+          status: "completed",
+          processedAt: new Date(),
+        },
+        { new: true }
+      );
+
+      if (!transaction) {
+        return res.status(404).json({
+          success: false,
+          message: "Transaction not found.",
+        });
+      }
+
+      const balance = await calculateBalance(req.user._id);
+
+      res.status(200).json({
+        success: true,
+        message: "Payment confirmed!",
+        transaction,
+        balance: Number(balance.toFixed(2)),
+      });
+    } else {
+      // Payment failed or requires action
+      await Transaction.findOneAndUpdate(
+        { stripePaymentIntentId: paymentIntentId },
+        { status: "failed", failureReason: `Payment status: ${paymentIntent.status}` }
+      );
+
+      res.status(400).json({
+        success: false,
+        message: `Payment not completed. Status: ${paymentIntent.status}`,
+      });
+    }
+  } catch (error) {
+    console.error("Confirm payment error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ────────────────────────────────────────────────────────────────────
+// POST /api/payments/webhook
+// Stripe Webhook (optional but recommended)
+// ────────────────────────────────────────────────────────────────────
+export const stripeWebhook = async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error("Webhook signature error:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle events
+  switch (event.type) {
+    case "payment_intent.succeeded": {
+      const paymentIntent = event.data.object;
+      console.log("✅ Payment succeeded:", paymentIntent.id);
+
+      await Transaction.findOneAndUpdate(
+        { stripePaymentIntentId: paymentIntent.id },
+        { status: "completed", processedAt: new Date() }
+      );
+      break;
+    }
+
+    case "payment_intent.payment_failed": {
+      const paymentIntent = event.data.object;
+      console.log("❌ Payment failed:", paymentIntent.id);
+
+      await Transaction.findOneAndUpdate(
+        { stripePaymentIntentId: paymentIntent.id },
+        {
+          status: "failed",
+          failureReason: paymentIntent.last_payment_error?.message || "Payment failed",
+        }
+      );
+      break;
+    }
+
+    default:
+      console.log(`Unhandled event: ${event.type}`);
+  }
+
+  res.json({ received: true });
+};
+
+// ────────────────────────────────────────────────────────────────────
+// POST /api/payments/deposit (Mock - keep for testing)
 // ────────────────────────────────────────────────────────────────────
 export const depositMoney = async (req, res) => {
   try {
     const { amount, currency = "usd", paymentMethod = "mock" } = req.body;
 
     if (!amount || amount <= 0) {
-      return res.status(400).json({ success: false, message: "Valid amount is required." });
-    }
-
-    let stripePaymentIntentId = null;
-
-    // Create Stripe Payment Intent (if Stripe is configured)
-    if (stripe && process.env.STRIPE_SECRET_KEY && paymentMethod !== "mock") {
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // Stripe uses cents
-        currency,
-        metadata: { userId: req.user._id.toString(), type: "deposit" },
+      return res.status(400).json({
+        success: false,
+        message: "Valid amount is required.",
       });
-      stripePaymentIntentId = paymentIntent.id;
     }
 
-    // Save transaction to DB
     const transaction = await Transaction.create({
       to: req.user._id,
       amount,
       currency: currency.toUpperCase(),
       type: "deposit",
-      status: paymentMethod === "mock" ? "completed" : "pending", // mock = instant complete
-      stripePaymentIntentId,
-      paymentMethod,
+      status: "completed",
+      paymentMethod: paymentMethod || "mock",
       description: `Deposit of ${currency.toUpperCase()} ${amount}`,
+      processedAt: new Date(),
     });
+
+    const balance = await calculateBalance(req.user._id);
 
     res.status(201).json({
       success: true,
       transaction,
-      ...(stripePaymentIntentId && { clientSecret: `pi_mock_secret_${stripePaymentIntentId}` }),
+      balance: Number(balance.toFixed(2)),
     });
   } catch (error) {
     console.error("Deposit error:", error);
-    res.status(500).json({ success: false, message: error.message || "Payment failed." });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
 // ────────────────────────────────────────────────────────────────────
-// @route   POST /api/payments/withdraw
-// @desc    Withdraw money
-// @access  Private
+// POST /api/payments/withdraw
 // ────────────────────────────────────────────────────────────────────
 export const withdrawMoney = async (req, res) => {
   try {
     const { amount, currency = "usd", description } = req.body;
 
     if (!amount || amount <= 0) {
-      return res.status(400).json({ success: false, message: "Valid amount is required." });
+      return res.status(400).json({
+        success: false,
+        message: "Valid amount is required.",
+      });
     }
 
-    // Check wallet balance
-    const balance = await getWalletBalance(req.user._id);
+    const balance = await calculateBalance(req.user._id);
+
     if (balance < amount) {
       return res.status(400).json({
         success: false,
@@ -91,31 +266,42 @@ export const withdrawMoney = async (req, res) => {
       processedAt: new Date(),
     });
 
-    res.status(201).json({ success: true, transaction });
+    const newBalance = await calculateBalance(req.user._id);
+
+    res.status(201).json({
+      success: true,
+      transaction,
+      balance: Number(newBalance.toFixed(2)),
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error." });
+    console.error("Withdraw error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
 // ────────────────────────────────────────────────────────────────────
-// @route   POST /api/payments/transfer
-// @desc    Transfer money to another user (investment)
-// @access  Private
+// POST /api/payments/transfer
 // ────────────────────────────────────────────────────────────────────
 export const transferMoney = async (req, res) => {
   try {
-    const { toUserId, amount, currency = "usd", description, meetingId } = req.body;
+    const { toUserId, amount, currency = "usd", description } = req.body;
 
     if (!toUserId || !amount || amount <= 0) {
-      return res.status(400).json({ success: false, message: "Recipient and valid amount are required." });
+      return res.status(400).json({
+        success: false,
+        message: "Recipient and valid amount are required.",
+      });
     }
 
     if (toUserId === req.user._id.toString()) {
-      return res.status(400).json({ success: false, message: "Cannot transfer to yourself." });
+      return res.status(400).json({
+        success: false,
+        message: "Cannot transfer to yourself.",
+      });
     }
 
-    // Check sender balance
-    const balance = await getWalletBalance(req.user._id);
+    const balance = await calculateBalance(req.user._id);
+
     if (balance < amount) {
       return res.status(400).json({
         success: false,
@@ -131,60 +317,44 @@ export const transferMoney = async (req, res) => {
       type: "transfer",
       status: "completed",
       paymentMethod: "mock",
-      description: description || `Transfer to user`,
-      reference: description,
-      meetingId: meetingId || null,
+      description: description || "Transfer to user",
       processedAt: new Date(),
     });
 
-    await transaction.populate(["from", "to"], "name email profilePic");
+    await transaction.populate("from", "name email profilePic");
+    await transaction.populate("to", "name email profilePic");
 
     res.status(201).json({ success: true, transaction });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error." });
+    console.error("Transfer error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ────────────────────────────────────────────────────────────────────
-// @route   GET /api/payments/history
-// @desc    Get transaction history for logged-in user
-// @access  Private
-// ────────────────────────────────────────────────────────────────────
+// Keep existing getTransactionHistory, getWalletBalance, getTransactionDetails...
 export const getTransactionHistory = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
-
     const pageNum = Number(req.query.page) || 1;
     const limitNum = Number(req.query.limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
 
     const filter = {
       $or: [{ from: req.user._id }, { to: req.user._id }],
     };
 
     if (req.query.type) filter.type = req.query.type;
-    if (req.query.status) filter.status = req.query.status;
-
-    const skip = (pageNum - 1) * limitNum;
 
     const transactions = await Transaction.find(filter)
-      .populate("from", "name email profilePic")
-      .populate("to", "name email profilePic")
+      .populate("from", "name email profilePic avatarUrl")
+      .populate("to", "name email profilePic avatarUrl")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
 
     const total = await Transaction.countDocuments(filter);
+    const balance = await calculateBalance(req.user._id);
 
-    let balance = 0;
-    try {
-      balance = await getWalletBalanceCal(req.user._id);
-    } catch (e) {
-      console.error("Balance error:", e);
-    }
-
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       balance: Number(balance.toFixed(2)),
       count: transactions.length,
@@ -193,76 +363,33 @@ export const getTransactionHistory = async (req, res) => {
       currentPage: pageNum,
       transactions,
     });
-
   } catch (error) {
-    console.error("getTransactionHistory error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Server error.",
-    });
+    console.error("History error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ────────────────────────────────────────────────────────────────────
-// @route   GET /api/payments/balance
-// @desc    Get current wallet balance
-// @access  Private
-// ────────────────────────────────────────────────────────────────────
 export const getWalletBalance = async (req, res) => {
   try {
-    const balance = await getWalletBalanceCal(req.user._id);
+    const balance = await calculateBalance(req.user._id);
     res.status(200).json({ success: true, balance: parseFloat(balance.toFixed(2)) });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error." });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ────────────────────────────────────────────────────────────────────
-// @route   GET /api/payments/:id
-// @desc    Get single transaction details
-// @access  Private (participants only)
-// ────────────────────────────────────────────────────────────────────
 export const getTransactionDetails = async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id)
-      .populate("from", "name email profilePic")
-      .populate("to", "name email profilePic");
+      .populate("from", "name email profilePic avatarUrl")
+      .populate("to", "name email profilePic avatarUrl");
 
     if (!transaction) {
-      return res.status(404).json({ success: false, message: "Transaction not found." });
-    }
-
-    const isParticipant =
-      transaction.from?._id.toString() === req.user._id.toString() ||
-      transaction.to?._id.toString() === req.user._id.toString();
-
-    if (!isParticipant) {
-      return res.status(403).json({ success: false, message: "Access denied." });
+      return res.status(404).json({ success: false, message: "Not found." });
     }
 
     res.status(200).json({ success: true, transaction });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error." });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
-// ── Helper: Calculate wallet balance ──────────────────────────────
-async function getWalletBalanceCal(userId) {
-  const userObjectId = new mongoose.Types.ObjectId(userId);
-
-  // Money IN
-  const inbound = await Transaction.aggregate([
-    { $match: { to: userObjectId, status: "completed" } },
-    { $group: { _id: null, total: { $sum: "$amount" } } },
-  ]);
-
-  // Money OUT
-  const outbound = await Transaction.aggregate([
-    { $match: { from: userObjectId, status: "completed" } },
-    { $group: { _id: null, total: { $sum: "$amount" } } },
-  ]);
-
-  const totalIn = inbound[0]?.total || 0;
-  const totalOut = outbound[0]?.total || 0;
-
-  return totalIn - totalOut;
-}

@@ -2,6 +2,7 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import { body, validationResult } from "express-validator";
 import User from "../models/User.js";
+import { sendEmail, generateOTP, getOTPEmailTemplate } from '../utils/sendEmail.js';
 
 
 
@@ -121,51 +122,314 @@ export const register = async (req, res) => {
   }
 };
 
+// POST /api/auth/2fa/send-otp
+// Send OTP to user's email
+// ────────────────────────────────────────────────────────────────────
+export const sendTwoFactorOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    console.log('Send OTP request:', { email });
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required.',
+      });
+    }
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.',
+      });
+    }
+
+    const otp = generateOTP();
+
+    // ✅ Save OTP
+    user.twoFactorOTP = otp;
+    user.twoFactorExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    // ✅ VERIFY IT SAVED
+    const checkUser = await User.findById(user._id);
+    console.log('OTP saved check:', {
+      savedOTP: checkUser.twoFactorOTP,
+      savedExpiry: checkUser.twoFactorExpiry,
+      userId: checkUser._id,
+    });
+
+    // Send email
+    try {
+      const template = getOTPEmailTemplate(user.name, otp);
+      await sendEmail({
+        to: user.email,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      });
+    } catch (emailErr) {
+      console.log('Email failed, OTP:', otp);
+    }
+
+    console.log(`✅ OTP for ${email}: ${otp}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'OTP sent to your email.',
+      devOTP: otp,
+    });
+  } catch (error) {
+    console.error('Send OTP error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ────────────────────────────────────────────────────────────────────
+// POST /api/auth/2fa/verify-otp
+// Verify OTP and complete login
+// ────────────────────────────────────────────────────────────────────
+export const verifyTwoFactorOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    console.log('Verify OTP request:', { email, otp, otpType: typeof otp });
+
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and OTP are required.',
+      });
+    }
+
+    const user = await User.findOne({ email }).select('+password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.',
+      });
+    }
+    console.log('Stored OTP:', user.twoFactorOTP, 'Type:', typeof user.twoFactorOTP);
+    console.log('Received OTP:', otp, 'Type:', typeof otp);
+    console.log('Match:', user.twoFactorOTP === otp);
+    console.log('Expiry:', user.twoFactorExpiry, 'Now:', new Date());
+    console.log('Expired:', new Date() > new Date(user.twoFactorExpiry));
+    // Check OTP
+    if (!user.twoFactorOTP || user.twoFactorOTP !== otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP.',
+      });
+    }
+
+    // Check expiry
+    if (!user.twoFactorExpiry || new Date() > user.twoFactorExpiry) {
+      return res.status(400).json({
+        success: false,
+        message: 'OTP has expired. Please request a new one.',
+      });
+    }
+
+    // ✅ Clear OTP after successful verification
+    user.twoFactorOTP = null;
+    user.twoFactorExpiry = null;
+    await user.save();
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Remove password from response
+    const userObj = user.toObject();
+    delete userObj.password;
+    delete userObj.twoFactorOTP;
+    delete userObj.twoFactorExpiry;
+
+    res.status(200).json({
+      success: true,
+      message: '2FA verification successful.',
+      token,
+      user: userObj,
+    });
+  } catch (error) {
+    console.error('Verify OTP error:', error);
+    res.status(500).json({ success: false, message: 'Verification failed.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────────────
+// PUT /api/auth/2fa/toggle
+// Enable or disable 2FA
+// ────────────────────────────────────────────────────────────────────
+export const toggleTwoFactor = async (req, res) => {
+  try {
+    const { enable, otp } = req.body;
+
+    console.log('Toggle 2FA request:', { enable, otp, userId: req.user._id });
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.',
+      });
+    }
+
+    if (enable) {
+      if (!otp) {
+        return res.status(400).json({
+          success: false,
+          message: 'OTP is required to enable 2FA.',
+        });
+      }
+
+      // ✅ DEBUG: Log both values
+      const receivedOTP = String(otp).trim();
+      const storedOTP = String(user.twoFactorOTP || '').trim();
+
+      console.log('Comparing OTPs:', {
+        received: receivedOTP,
+        stored: storedOTP,
+        match: receivedOTP === storedOTP,
+        expiry: user.twoFactorExpiry,
+        now: new Date(),
+        expired: user.twoFactorExpiry ? new Date() > new Date(user.twoFactorExpiry) : 'no expiry',
+      });
+
+      if (!storedOTP) {
+        return res.status(400).json({
+          success: false,
+          message: 'No OTP found. Please request a new one.',
+        });
+      }
+
+      // ✅ FIXED: Compare as trimmed strings
+      if (receivedOTP !== storedOTP) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid OTP.',
+        });
+      }
+
+      // ✅ FIXED: Check expiry properly
+      if (user.twoFactorExpiry && new Date() > new Date(user.twoFactorExpiry)) {
+        return res.status(400).json({
+          success: false,
+          message: 'OTP expired. Please request a new one.',
+        });
+      }
+    }
+
+    // ✅ Toggle 2FA
+    user.twoFactorEnabled = enable;
+    user.twoFactorOTP = null;
+    user.twoFactorExpiry = null;
+    await user.save();
+
+    console.log('✅ 2FA toggled:', { enabled: enable, user: user.email });
+
+    res.status(200).json({
+      success: true,
+      message: `Two-factor authentication ${enable ? 'enabled' : 'disabled'}.`,
+      twoFactorEnabled: user.twoFactorEnabled,
+    });
+  } catch (error) {
+    console.error('Toggle 2FA error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// 
+
 // ────────────────────────────────────────────────────────────────────
 // @route   POST /api/auth/login
 // @desc    Login user
 // @access  Public
 // ────────────────────────────────────────────────────────────────────
-export const login = (
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
+export const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email }).select('+password');
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials.',
+      });
     }
 
-    try {
-      const { email, password } = req.body;
+    const isMatch = await user.comparePassword(password);
 
-      // Get user with password field
-      const user = await User.findOne({ email }).select("+password");
-      if (!user) {
-        return res.status(401).json({ success: false, message: "Invalid email or password." });
-      }
-
-      // Check password
-      const isMatch = await user.comparePassword(password);
-      if (!isMatch) {
-        return res.status(401).json({ success: false, message: "Invalid email or password." });
-      }
-
-      if (!user.isActive) {
-        return res.status(403).json({ success: false, message: "Account deactivated." });
-      }
-        // Sign a lean payload — no sensitive data in the token
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    )
-
-
-      sendTokenResponse(user, 200, res);
-    } catch (error) {
-      console.error("Login error:", error);
-      res.status(500).json({ success: false, message: "Server error during login." });
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials.',
+      });
     }
+
+    // ✅ CHECK IF 2FA IS ENABLED
+    if (user.twoFactorEnabled) {
+      // Generate and send OTP
+      const otp = generateOTP();
+
+      user.twoFactorOTP = otp;
+      user.twoFactorExpiry = new Date(Date.now() + 10 * 60 * 1000);
+      await user.save();
+
+      // Send OTP email
+      const emailTemplate = getOTPEmailTemplate(user.name, otp);
+      await sendEmail({
+        to: user.email,
+        subject: emailTemplate.subject,
+        html: emailTemplate.html,
+        text: emailTemplate.text,
+      });
+
+      console.log(`🔐 2FA OTP sent to ${user.email}: ${otp}`);
+
+      return res.status(200).json({
+        success: true,
+        requires2FA: true,
+        message: 'OTP sent to your email.',
+        email: user.email,
+        // Dev only
+        ...(process.env.NODE_ENV !== 'production' && { devOTP: otp }),
+      });
+    }
+
+    // Normal login
+sendTokenResponse(user, 200, res);
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ success: false, message: 'Server error.' });
   }
-);
+};
+
+
+export const logout = async (req, res) => {
+  res.cookie("token", "", {
+    httpOnly: true,
+    expires: new Date(0),
+    sameSite: "lax",
+    secure: false,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Logged out successfully",
+  });
+};
 
 // ────────────────────────────────────────────────────────────────────
 // @route   GET /api/auth/me
@@ -179,8 +443,8 @@ export const getMe = (
       res.status(200).json({ success: true, user });
     } catch (error) {
       res.status(500).json({ success: false, message: "Server error." });
-  }
-});
+    }
+  });
 
 // ────────────────────────────────────────────────────────────────────
 // @route   POST /api/auth/send-otp
@@ -193,22 +457,22 @@ export const sendOtp = (
       const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
       const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    await User.findByIdAndUpdate(req.user._id, {
-      twoFactorOTP: otp,
-      twoFactorExpiry: expiry,
-    });
+      await User.findByIdAndUpdate(req.user._id, {
+        twoFactorOTP: otp,
+        twoFactorExpiry: expiry,
+      });
 
-    // In production: send via Nodemailer. For mock, log to console.
-    console.log(`🔐 OTP for ${req.user.email}: ${otp}`);
+      // In production: send via Nodemailer. For mock, log to console.
+      console.log(`🔐 OTP for ${req.user.email}: ${otp}`);
 
-    res.status(200).json({
-      success: true,
-      message: `OTP sent to ${req.user.email}. (Check server console for mock OTP)`,
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Failed to generate OTP." });
-  }
-});
+      res.status(200).json({
+        success: true,
+        message: `OTP sent to ${req.user.email}. (Check server console for mock OTP)`,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: "Failed to generate OTP." });
+    }
+  });
 
 // ────────────────────────────────────────────────────────────────────
 // @route   POST /api/auth/verify-otp
@@ -221,26 +485,26 @@ export const verifyOtp = (
       const { otp } = req.body;
       const user = await User.findById(req.user._id);
 
-    if (!user.twoFactorOTP || user.twoFactorOTP !== otp) {
-      return res.status(400).json({ success: false, message: "Invalid OTP." });
+      if (!user.twoFactorOTP || user.twoFactorOTP !== otp) {
+        return res.status(400).json({ success: false, message: "Invalid OTP." });
+      }
+
+      if (new Date() > user.twoFactorExpiry) {
+        return res.status(400).json({ success: false, message: "OTP has expired. Request a new one." });
+      }
+
+      // Clear OTP after successful verification
+      await User.findByIdAndUpdate(req.user._id, {
+        twoFactorOTP: null,
+        twoFactorExpiry: null,
+        twoFactorEnabled: true,
+      });
+
+      res.status(200).json({ success: true, message: "OTP verified successfully." });
+    } catch (error) {
+      res.status(500).json({ success: false, message: "Server error." });
     }
-
-    if (new Date() > user.twoFactorExpiry) {
-      return res.status(400).json({ success: false, message: "OTP has expired. Request a new one." });
-    }
-
-    // Clear OTP after successful verification
-    await User.findByIdAndUpdate(req.user._id, {
-      twoFactorOTP: null,
-      twoFactorExpiry: null,
-      twoFactorEnabled: true,
-    });
-
-    res.status(200).json({ success: true, message: "OTP verified successfully." });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Server error." });
-  }
-});
+  });
 
 // ────────────────────────────────────────────────────────────────────
 // @route   POST /api/auth/change-password
@@ -252,25 +516,25 @@ export const changePassword = (
     try {
       const { currentPassword, newPassword } = req.body;
 
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ success: false, message: "Both fields are required." });
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ success: false, message: "Both fields are required." });
+      }
+
+      const user = await User.findById(req.user._id).select("+password");
+      const isMatch = await user.comparePassword(currentPassword);
+
+      if (!isMatch) {
+        return res.status(401).json({ success: false, message: "Current password is incorrect." });
+      }
+
+      user.password = newPassword;
+      await user.save(); // triggers bcrypt pre-save hook
+
+      res.status(200).json({ success: true, message: "Password changed successfully." });
+    } catch (error) {
+      res.status(500).json({ success: false, message: "Server error." });
     }
-
-    const user = await User.findById(req.user._id).select("+password");
-    const isMatch = await user.comparePassword(currentPassword);
-
-    if (!isMatch) {
-      return res.status(401).json({ success: false, message: "Current password is incorrect." });
-    }
-
-    user.password = newPassword;
-    await user.save(); // triggers bcrypt pre-save hook
-
-    res.status(200).json({ success: true, message: "Password changed successfully." });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Server error." });
-  }
-});
+  });
 
 export const forgotPassword = async (req, res) => {
   try {

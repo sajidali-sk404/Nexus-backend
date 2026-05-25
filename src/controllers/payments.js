@@ -1,6 +1,7 @@
 import Transaction from "../models/Transaction.js";
 import mongoose from "mongoose";
 import Stripe from "stripe";
+import Notification from "../models/Notification.js";
 
 // ✅ Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -28,7 +29,7 @@ async function calculateBalance(userId) {
 // ────────────────────────────────────────────────────────────────────
 export const createPaymentIntent = async (req, res) => {
   try {
-    const { amount, currency = "usd" } = req.body;
+    const { amount, currency = "pkr" } = req.body;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -199,7 +200,7 @@ export const stripeWebhook = async (req, res) => {
 // ────────────────────────────────────────────────────────────────────
 export const depositMoney = async (req, res) => {
   try {
-    const { amount, currency = "usd", paymentMethod = "mock" } = req.body;
+    const { amount, currency = "pkr", paymentMethod = "mock" } = req.body;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -237,7 +238,7 @@ export const depositMoney = async (req, res) => {
 // ────────────────────────────────────────────────────────────────────
 export const withdrawMoney = async (req, res) => {
   try {
-    const { amount, currency = "usd", description } = req.body;
+    const { amount, currency = "pkr", description } = req.body;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -284,7 +285,7 @@ export const withdrawMoney = async (req, res) => {
 // ────────────────────────────────────────────────────────────────────
 export const transferMoney = async (req, res) => {
   try {
-    const { toUserId, amount, currency = "usd", description } = req.body;
+    const { toUserId, amount, currency = "pkr", description } = req.body;
 
     if (!toUserId || !amount || amount <= 0) {
       return res.status(400).json({

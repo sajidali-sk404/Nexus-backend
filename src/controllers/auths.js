@@ -33,6 +33,7 @@ const sendTokenResponse = (
 
   res.status(statusCode).json({
     success: true,
+    token,
     user,
   });
 };

@@ -129,9 +129,6 @@ export const register = async (req, res) => {
 export const sendTwoFactorOTP = async (req, res) => {
   try {
     const { email } = req.body;
-
-    console.log('Send OTP request:', { email });
-
     if (!email) {
       return res.status(400).json({
         success: false,
@@ -157,13 +154,7 @@ export const sendTwoFactorOTP = async (req, res) => {
 
     // ✅ VERIFY IT SAVED
     const checkUser = await User.findById(user._id);
-    console.log('OTP saved check:', {
-      savedOTP: checkUser.twoFactorOTP,
-      savedExpiry: checkUser.twoFactorExpiry,
-      userId: checkUser._id,
-    });
-
-    // Send email
+      // Send email
     try {
       const template = getOTPEmailTemplate(user.name, otp);
       await sendEmail({
@@ -173,10 +164,8 @@ export const sendTwoFactorOTP = async (req, res) => {
         text: template.text,
       });
     } catch (emailErr) {
-      console.log('Email failed, OTP:', otp);
+      console.error('Email failed, OTP:', otp);
     }
-
-    console.log(`✅ OTP for ${email}: ${otp}`);
 
     res.status(200).json({
       success: true,
@@ -196,10 +185,6 @@ export const sendTwoFactorOTP = async (req, res) => {
 export const verifyTwoFactorOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
-
-    console.log('Verify OTP request:', { email, otp, otpType: typeof otp });
-
-
     if (!email || !otp) {
       return res.status(400).json({
         success: false,
@@ -215,11 +200,6 @@ export const verifyTwoFactorOTP = async (req, res) => {
         message: 'User not found.',
       });
     }
-    console.log('Stored OTP:', user.twoFactorOTP, 'Type:', typeof user.twoFactorOTP);
-    console.log('Received OTP:', otp, 'Type:', typeof otp);
-    console.log('Match:', user.twoFactorOTP === otp);
-    console.log('Expiry:', user.twoFactorExpiry, 'Now:', new Date());
-    console.log('Expired:', new Date() > new Date(user.twoFactorExpiry));
     // Check OTP
     if (!user.twoFactorOTP || user.twoFactorOTP !== otp) {
       return res.status(400).json({
@@ -273,9 +253,6 @@ export const verifyTwoFactorOTP = async (req, res) => {
 export const toggleTwoFactor = async (req, res) => {
   try {
     const { enable, otp } = req.body;
-
-    console.log('Toggle 2FA request:', { enable, otp, userId: req.user._id });
-
     const user = await User.findById(req.user._id);
 
     if (!user) {
@@ -296,16 +273,6 @@ export const toggleTwoFactor = async (req, res) => {
       // ✅ DEBUG: Log both values
       const receivedOTP = String(otp).trim();
       const storedOTP = String(user.twoFactorOTP || '').trim();
-
-      console.log('Comparing OTPs:', {
-        received: receivedOTP,
-        stored: storedOTP,
-        match: receivedOTP === storedOTP,
-        expiry: user.twoFactorExpiry,
-        now: new Date(),
-        expired: user.twoFactorExpiry ? new Date() > new Date(user.twoFactorExpiry) : 'no expiry',
-      });
-
       if (!storedOTP) {
         return res.status(400).json({
           success: false,
@@ -335,9 +302,6 @@ export const toggleTwoFactor = async (req, res) => {
     user.twoFactorOTP = null;
     user.twoFactorExpiry = null;
     await user.save();
-
-    console.log('✅ 2FA toggled:', { enabled: enable, user: user.email });
-
     res.status(200).json({
       success: true,
       message: `Two-factor authentication ${enable ? 'enabled' : 'disabled'}.`,
@@ -395,8 +359,6 @@ export const login = async (req, res) => {
         html: emailTemplate.html,
         text: emailTemplate.text,
       });
-
-      console.log(`🔐 2FA OTP sent to ${user.email}: ${otp}`);
 
       return res.status(200).json({
         success: true,
@@ -462,9 +424,6 @@ export const sendOtp = (
         twoFactorOTP: otp,
         twoFactorExpiry: expiry,
       });
-
-      // In production: send via Nodemailer. For mock, log to console.
-      console.log(`🔐 OTP for ${req.user.email}: ${otp}`);
 
       res.status(200).json({
         success: true,

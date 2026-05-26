@@ -25,12 +25,6 @@ export const sendEmail = async ({ to, subject, html, text }) => {
 
   // Mock mode - just log the email
   if (!transporter) {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📧 MOCK EMAIL (No email config found)');
-    console.log(`To: ${to}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Content: ${text || html}`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     return { messageId: 'mock-' + Date.now() };
   }
 
@@ -42,8 +36,6 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       html,
       text,
     });
-
-    console.log('✅ Email sent:', info.messageId);
     return info;
   } catch (error) {
     console.error('❌ Email send failed:', error);

@@ -64,8 +64,6 @@ export const createPaymentIntent = async (req, res) => {
       description: `Deposit of ${currency.toUpperCase()} ${amount}`,
     });
 
-    console.log("Payment Intent created:", paymentIntent.id);
-
     res.status(201).json({
       success: true,
       clientSecret: paymentIntent.client_secret,
@@ -95,9 +93,6 @@ export const confirmPayment = async (req, res) => {
 
     // ✅ Verify with Stripe
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-    console.log("Payment status:", paymentIntent.status);
-
     if (paymentIntent.status === "succeeded") {
       // ✅ Update transaction to completed
       const transaction = await Transaction.findOneAndUpdate(
@@ -165,8 +160,6 @@ export const stripeWebhook = async (req, res) => {
   switch (event.type) {
     case "payment_intent.succeeded": {
       const paymentIntent = event.data.object;
-      console.log("✅ Payment succeeded:", paymentIntent.id);
-
       await Transaction.findOneAndUpdate(
         { stripePaymentIntentId: paymentIntent.id },
         { status: "completed", processedAt: new Date() }
@@ -176,8 +169,6 @@ export const stripeWebhook = async (req, res) => {
 
     case "payment_intent.payment_failed": {
       const paymentIntent = event.data.object;
-      console.log("❌ Payment failed:", paymentIntent.id);
-
       await Transaction.findOneAndUpdate(
         { stripePaymentIntentId: paymentIntent.id },
         {
@@ -189,7 +180,6 @@ export const stripeWebhook = async (req, res) => {
     }
 
     default:
-      console.log(`Unhandled event: ${event.type}`);
   }
 
   res.json({ received: true });

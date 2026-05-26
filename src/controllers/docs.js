@@ -12,9 +12,7 @@ import { uploadToCloudinary , deleteFromCloudinary } from "../lib/cloudinary.js"
 // ────────────────────────────────────────────────────────────────────
 export const uploadDocument = async (req, res) => {
   try {
-    console.log(req.file); // debug
-
-    if (!req.file) {
+      if (!req.file) {
       return res.status(400).json({
         success: false,
         message: "No file uploaded.",

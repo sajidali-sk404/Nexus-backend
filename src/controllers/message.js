@@ -52,10 +52,6 @@ export const sendMessage = async (req, res) => {
 export const getConversations = async (req, res) => {
   try {
     const userId = req.user._id;
-
-    // ✅ DEBUG: Log who is requesting
-    console.log("getConversations called by user:", userId, req.user.name);
-
     // Get all messages involving this user
     const allMessages = await Message.find({
       $or: [
@@ -67,15 +63,10 @@ export const getConversations = async (req, res) => {
       .populate("receiverId", "name email profilePic avatarUrl role isOnline isActive")
       .sort({ createdAt: -1 });
 
-    // ✅ DEBUG: Log message count
-    console.log("Total messages found:", allMessages.length);
-
     // ✅ FIXED: Filter out messages where populate failed
     const validMessages = allMessages.filter(
       (msg) => msg.senderId && msg.receiverId
     );
-
-    console.log("Valid messages:", validMessages.length);
 
     // Build unique conversations (one entry per partner)
     const conversationMap = new Map();
@@ -86,7 +77,6 @@ export const getConversations = async (req, res) => {
 
       // ✅ FIXED: Skip if partner is null/undefined
       if (!partner || !partner._id) {
-        console.log("Skipping message with missing partner:", msg._id);
         return;
       }
 
@@ -139,12 +129,6 @@ export const getConversations = async (req, res) => {
       }
     }
 
-    // ✅ DEBUG: Log final result
-    console.log("Returning conversations:", conversations.length);
-    conversations.forEach((c) => {
-      console.log(`  - ${c.partner.name}: ${c.lastMessage.content} (unread: ${c.unreadCount})`);
-    });
-
     res.status(200).json({
       success: true,
       count: conversations.length,
@@ -169,10 +153,6 @@ export const getMessages = async (req, res) => {
     const currentUserId = req.user._id;
     const { page = 1, limit = 50 } = req.query;
     const skip = (page - 1) * limit;
-
-    // ✅ DEBUG
-    console.log("getMessages:", { currentUserId, otherUserId: userId });
-
     const messages = await Message.find({
       $or: [
         { senderId: currentUserId, receiverId: userId },
@@ -197,10 +177,6 @@ export const getMessages = async (req, res) => {
       { senderId: userId, receiverId: currentUserId, isRead: false },
       { isRead: true, readAt: new Date() }
     );
-
-    // ✅ DEBUG
-    console.log("Found messages:", messages.length);
-
     res.status(200).json({
       success: true,
       total,
